@@ -107,6 +107,7 @@ namespace Rodzilla.RealEstate
                     {
                         log.LogInformation($"Post {postId} for MLS ID:{listing.MlsId} exists - skipping insert.");
                         rdr.Close();
+
                     }
 
                     rdr.Close();
