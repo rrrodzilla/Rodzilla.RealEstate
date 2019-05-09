@@ -1,10 +1,11 @@
-using System;
-using System.Globalization;
-using System.Threading.Tasks;
 using Microsoft.Azure.WebJobs;
 using Microsoft.Extensions.Logging;
 using MySql.Data.MySqlClient;
 using Newtonsoft.Json.Linq;
+using Rodzilla.RealEstate.Models;
+using System;
+using System.Globalization;
+using System.Threading.Tasks;
 using WordPressPCL;
 using WordPressPCL.Models;
 
@@ -13,39 +14,35 @@ namespace Rodzilla.RealEstate
     public static class DraftPropertyPost
     {
         [FunctionName("DraftPropertyPost")]
-        public static async Task Run([QueueTrigger("incomingqueue-activeproperties", Connection = "AzureWebJobsStorage")]MlsListing incomingPropertyListing, ILogger log)
+        public static async Task Run([QueueTrigger("incomingqueue-activeproperties", Connection = "AzureWebJobsStorage")]MlsListing incomingPropertyListing, ILogger log,
+            [Queue("incoming-property-meta", Connection = "AzureWebJobsStorage")]IAsyncCollector<PostMetaValue> metaAsyncCollector)
         {
-            log.LogInformation($"Incoming Property for Draft Post: {incomingPropertyListing}");
+            log.LogInformation($"\n\n\nIncoming Property for Draft Post: {incomingPropertyListing}");
 
             var client = new WordPressClient(Environment.GetEnvironmentVariable("WordpressUrl"))
             {
                 AuthMethod = AuthMethod.JWT
             };
-            //JsonSerializerSettings = new JsonSerializerSettings()
-            //{
-            //    DateFormatHandling = DateFormatHandling.IsoDateFormat,
-            //    DateFormatString = "d MMMM YYYY",
-            //    CheckAdditionalContent = true
-            //}
 
 
-
-
+            log.LogInformation($"Getting JWToken for Draft Post: {incomingPropertyListing}");
             await client.RequestJWToken(Environment.GetEnvironmentVariable("WordpressUsername"), Environment.GetEnvironmentVariable("WordpressPassword"));
             var isValidToken = await client.IsValidJWToken();
             // Posts
 
-            JObject draftPost = null;
+            //JObject draftPost = null;
             log.LogInformation("Initialized draftPost");
+            JObject post = null;
             if (isValidToken)
             {
                 try
                 {
-                    var post = new PropertyPost(incomingPropertyListing);
+                    var draftPost = new PropertyPost(incomingPropertyListing) { Status = Status.Publish };
 
-                    draftPost = await client.CustomRequest.Create<PropertyPost, JObject>("wp/v2/properties", post);
-                    log.LogInformation($"Drafted post {draftPost.Property("Id")} for MLS ID {incomingPropertyListing.MlsId}");
-                    log.LogInformation("Created Draft Post");
+                    //trying to publish it
+                    post = await client.CustomRequest.Create<PropertyPost, JObject>("wp/v2/properties", draftPost);
+                    log.LogInformation($"Published post {post.Property("id").Value} for MLS ID {incomingPropertyListing.MlsId}");
+
                 }
                 catch (Exception e)
                 {
@@ -54,84 +51,72 @@ namespace Rodzilla.RealEstate
                 }
             }
 
-            if (draftPost != null)
+            if (post != null)
             {
-                var postId = draftPost.Property("id").Value.ToString();
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_id", incomingPropertyListing.MlsId, log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_price", incomingPropertyListing.SalePrice.ToString(CultureInfo.CurrentCulture), log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_size", incomingPropertyListing.Size.ToString(CultureInfo.CurrentCulture), log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_size_prefix", "Sq Ft", log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_bedrooms", incomingPropertyListing.Bedrooms.ToString(CultureInfo.CurrentCulture), log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_bathrooms", incomingPropertyListing.Bathrooms.ToString(CultureInfo.CurrentCulture), log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_garage", incomingPropertyListing.GarageSpaces.ToString(CultureInfo.CurrentCulture), log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_year", incomingPropertyListing.YearBuilt.ToString(CultureInfo.CurrentCulture), log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_map_address", incomingPropertyListing.FullAddress.ToString(CultureInfo.CurrentCulture), log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_address", incomingPropertyListing.StreetAddress.ToString(CultureInfo.CurrentCulture), log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_zip", incomingPropertyListing.PostalCode.ToString(CultureInfo.CurrentCulture), log);
+                var postId = post.Property("id").Value.ToString();
                 await incomingPropertyListing.LoadGeocode();
-                await InsertPropertyTerm(postId, incomingPropertyListing, "fave_property_location", $"{incomingPropertyListing.Latitude},{incomingPropertyListing.Longitude}", log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "houzez_geolocation_lat", $"{incomingPropertyListing.Latitude}", log);
-                await InsertPropertyTerm(postId, incomingPropertyListing, "houzez_geolocation_long", $"{incomingPropertyListing.Longitude}", log);
 
-            }
-        }
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_id", MetaValue = incomingPropertyListing.MlsId });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_price", MetaValue = incomingPropertyListing.SalePrice.ToString(CultureInfo.CurrentCulture) });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_size", MetaValue = incomingPropertyListing.Size.ToString(CultureInfo.CurrentCulture) });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_size_prefix", MetaValue = "Sq Ft" });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_bedrooms", MetaValue = incomingPropertyListing.Bedrooms.ToString(CultureInfo.CurrentCulture) });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_bathrooms", MetaValue = incomingPropertyListing.Bathrooms.ToString(CultureInfo.CurrentCulture) });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_garage", MetaValue = incomingPropertyListing.GarageSpaces.ToString(CultureInfo.CurrentCulture) });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_year", MetaValue = incomingPropertyListing.YearBuilt.ToString(CultureInfo.CurrentCulture) });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_map_address", MetaValue = incomingPropertyListing.FullAddress.ToString(CultureInfo.CurrentCulture) });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_address", MetaValue = incomingPropertyListing.StreetAddress.ToString(CultureInfo.CurrentCulture) });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_zip", MetaValue = incomingPropertyListing.PostalCode.ToString(CultureInfo.CurrentCulture) });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_location", MetaValue = $"{incomingPropertyListing.Latitude},{incomingPropertyListing.Longitude}" });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                { PostId = postId, Listing = incomingPropertyListing, MetaKey = "houzez_geolocation_lat", MetaValue = $"{incomingPropertyListing.Latitude}" });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                    { PostId = postId, Listing = incomingPropertyListing, MetaKey = "houzez_geolocation_long", MetaValue = $"{incomingPropertyListing.Longitude}" });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                    { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_map_street_view", MetaValue = "show" });
+                await metaAsyncCollector.AddAsync(new PostMetaValue()
+                    { PostId = postId, Listing = incomingPropertyListing, MetaKey = "fave_property_map", MetaValue = "1" });
 
-        private static async Task InsertPropertyTerm(string postId, MlsListing listing, string metaKey, string value, ILogger log)
-        {
-//now we should add all the terms directly into the database for this property
-            using (var conn = new MySqlConnection(Environment.GetEnvironmentVariable("MySqlStorage")))
-            {
-                try
+                //publish post
+                using (var conn = new MySqlConnection(Environment.GetEnvironmentVariable("MySqlStorage")))
                 {
-                    conn.Open();
-                    //here we want to make sure the term doesn't already exist in the db
-                    var sql = $"SELECT post_id, meta_key, meta_value FROM 16c_postmeta WHERE post_id=@postId and meta_key='@metaKey' and meta_value='@metaValue'";
-                    var cmd = new MySqlCommand(sql, conn);
-                    var paramPostId = cmd.CreateParameter();
-                    paramPostId.ParameterName = "@postId";
-                    paramPostId.Value = postId;
-                    cmd.Parameters.Add(paramPostId);
-
-                    var paramMetaKey = cmd.CreateParameter();
-                    paramMetaKey.ParameterName = "@metaKey";
-                    paramMetaKey.Value = metaKey;
-                    cmd.Parameters.Add(paramMetaKey);
-
-                    var paramMetaValue = cmd.CreateParameter();
-                    paramMetaValue.ParameterName = "@metaValue";
-                    paramMetaValue.Value = value;
-                    cmd.Parameters.Add(paramMetaValue);
-
-                    var rdr = await cmd.ExecuteReaderAsync();
-                    if (rdr.HasRows)
+                    try
                     {
-                        log.LogInformation($"Post {postId} for MLS ID:{listing.MlsId} exists - skipping insert.");
-                        rdr.Close();
+                        conn.Open();
+                        //here we want to make sure the term doesn't already exist in the db
+                        var sql = "UPDATE 16c_posts SET post_status='publish' WHERE ID = @postId";
+                        var cmd = new MySqlCommand(sql, conn);
+                        var paramPostId = cmd.CreateParameter();
+                        paramPostId.ParameterName = "@postId";
+                        paramPostId.Value = postId;
+                        cmd.Parameters.Add(paramPostId);
+                        await cmd.ExecuteNonQueryAsync();
 
+                        log.LogInformation($"PUBLISHED POST: {postId}");
+                    }
+                    catch (Exception ex)
+                    {
+                        log.LogInformation($"ERROR PUBLISHING POST ID:{postId} --- REVIEW Exception.");
+                        log.LogInformation(ex.ToString());
                     }
 
-                    rdr.Close();
-
-                    log.LogInformation($"INSERTING {metaKey} for MLS ID:{listing.MlsId}");
-
-                    //insert into terms table
-                    //note new id
-                    sql = $"INSERT INTO 16c_postmeta (post_id, meta_key, meta_value) VALUES (@postId,@metaKey,@metaValue)";
-                    cmd = new MySqlCommand(sql, conn);
-                    cmd.Parameters.Add(paramPostId);
-                    cmd.Parameters.Add(paramMetaKey);
-                    cmd.Parameters.Add(paramMetaValue);
-                    await cmd.ExecuteNonQueryAsync();
+                    conn.Close();
 
                 }
-                catch (Exception ex)
-                {
-                    log.LogInformation($"ERROR INSERTING MLS ID:{listing.MlsId} REVIEW Exception.");
-                    log.LogInformation(ex.ToString());
-                }
-
-                conn.Close();
             }
         }
+
     }
 }

@@ -6,29 +6,13 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace Rodzilla.RealEstate
+namespace Rodzilla.RealEstate.Models
 {
     [JsonObject(MemberSerialization.OptIn, ItemNullValueHandling = NullValueHandling.Ignore)]
     public class MlsListing
     {
 
-        [JsonProperty]
-        public string Title
-        {
-            get
-            {
-                switch (PropertyType)
-                {
-                    case "Residential":
-                        return Type != string.Empty ? $"{Type} {PropertyType} Home" : $"{PropertyType} Home in {City}";
-                    case "Commercial/Industrial":
-                        return $"Commercial Property in {City}";
-                    case "Lot and Acreage":
-                        return $"Land in {City}";
-                }
-                return "";
-            }
-        }
+        [JsonProperty] public string Title => StreetAddress;
 
         [JsonProperty("PublicRemarks")]
         public string Content { get; set; }
@@ -97,7 +81,7 @@ namespace Rodzilla.RealEstate
 
         public async Task LoadGeocode()
         {
-            var url = $"https://maps.googleapis.com/maps/api/geocode/json?address={System.Uri.EscapeDataString(FullAddress)},+CA&key={Environment.GetEnvironmentVariable("GoogleApiKey")}";
+            var url = $"https://maps.googleapis.com/maps/api/geocode/json?address={Uri.EscapeDataString(FullAddress)},+CA&key={Environment.GetEnvironmentVariable("GoogleApiKey")}";
             var request = (HttpWebRequest)WebRequest.Create(url);
             request.ContentType = "application/json; charset=utf-8";
 

@@ -20,6 +20,8 @@ namespace Rodzilla.RealEstate
         public string slug => _listing.MlsId.ToString();
         public int[] status => new int[]{6};
 
+        public Status Status { get; set; }
+
         public int[] city => new int[]{ ParseEnumValue<Cities>(_listing.City) };
 
         public int[] type => new int[]{ ParseEnumValue<PropertyTypes>(_listing.PropertyType)};

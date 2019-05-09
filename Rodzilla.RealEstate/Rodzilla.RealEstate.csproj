@@ -8,6 +8,7 @@
     <PackageReference Include="libRETS-dotnet" Version="1.6.2" />
     <PackageReference Include="libRETS-x64" Version="1.6.2" />
     <PackageReference Include="libRETS-x86" Version="1.6.1" />
+    <PackageReference Include="Microsoft.Azure.WebJobs.Extensions.CosmosDB" Version="3.0.3" />
     <PackageReference Include="Microsoft.Azure.WebJobs.Extensions.Storage" Version="3.0.5" />
     <PackageReference Include="Microsoft.NET.Sdk.Functions" Version="1.0.27" />
     <PackageReference Include="MySql.Data" Version="8.0.16" />
